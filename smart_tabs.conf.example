@@ -1,0 +1,42 @@
+# Smart Tabs Configuration File
+# Copy this to ~/.config/kitty/smart_tabs.conf and customize
+
+[colors]
+# Color palette for directories (hex colors, comma-separated)
+palette = #2b8eff,#a9dc76,#ab9df2,#ffd866,#78dce8,#f48771
+
+[behavior]
+# Show running commands in tab title
+show_commands = true
+
+# Show tab index numbers
+show_tab_index = true
+
+# Poll interval for daemon (seconds)
+poll_interval = 2
+
+# Maximum directory name length (truncate longer names)
+max_dir_length = 30
+
+# Maximum command name length (truncate longer names)
+max_cmd_length = 30
+
+[active_tab]
+# Arrows to surround active tab title
+arrows = ▶▶▶▶
+
+[filters]
+# Shells to ignore (won't show as commands)
+ignored_shells = zsh,bash,sh,fish,ksh,tcsh,csh
+
+# Commands to ignore
+ignored_commands = npm,yarn,sleep,cat,grep,sed,awk,pip,gem,bundle
+
+# Command name prefixes to ignore
+ignored_prefixes = mcp_server_,mcp-server-,helper-,worker-,node_modules,ts-node
+
+# Command name suffixes to ignore
+ignored_suffixes = -helper,-worker,-daemon,-service,-server
+
+# Priority commands (show these even if other processes are running)
+priority_commands = nvim,vim,vi,emacs,code,nano,claude,git,docker,kubectl

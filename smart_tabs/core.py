@@ -383,8 +383,8 @@ def update_tabs(debug: bool = False) -> int:
                     f.write(f"  Detected command: '{cmd}'\n")
 
             if cwd and tab_id:
-                # Normalize path
-                cwd = cwd.rstrip('/')
+                # Normalize path (preserve root '/' to avoid empty string)
+                cwd = cwd.rstrip('/') or '/'
                 dir_name = cwd.split('/')[-1] if '/' in cwd else cwd
 
                 # Truncate directory name if needed

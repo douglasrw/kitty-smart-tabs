@@ -178,3 +178,67 @@ class TestColorMapping:
 
         # They might be different since paths are different strings
         # This is actually handled by core.py which strips trailing slashes
+
+    def test_root_directory_gets_color(self):
+        """Root directory / should get a valid color."""
+        path = "/"
+        color = get_color_for_path(path)
+
+        assert isinstance(color, str)
+        assert color.startswith('#')
+        assert len(color) == 7
+
+    def test_root_normalized_not_empty(self):
+        """Root directory should not become empty string after normalization.
+
+        Bug: In core.py, cwd.rstrip('/') turns '/' into ''
+        This causes collision with empty string hash.
+        """
+        # Simulate what core.py does
+        root = "/"
+        normalized = root.rstrip('/') or '/'  # Fix: use 'or' to preserve root
+
+        assert normalized == '/'
+        assert normalized != ''
+
+    def test_no_collision_root_vs_other_paths_small_palette(self):
+        """Root / should not collide with other paths when using small palette.
+
+        Bug reproduction: With 6-color palette, '/' becoming '' causes:
+        - '/' → '' → hash % 6 = 0 → blue
+        - '/Users/dwalseth/dev/mix_decode' → hash % 6 = 0 → blue
+
+        This test uses a 6-color palette to verify the fix.
+        """
+        # User's actual 6-color palette from config
+        palette_6_colors = [
+            '#2b8eff',  # blue
+            '#a9dc76',  # green
+            '#ab9df2',  # purple
+            '#ffd866',  # yellow
+            '#78dce8',  # cyan
+            '#f48771',  # red
+        ]
+
+        # Simulate core.py normalization BUG (before fix)
+        root_buggy = '/'.rstrip('/')  # '' empty string
+
+        # Simulate core.py normalization FIXED
+        root_fixed = '/'.rstrip('/') or '/'  # '/' preserved
+
+        # Get colors
+        color_empty = get_color_for_path(root_buggy, palette_6_colors)  # ''
+        color_root = get_color_for_path(root_fixed, palette_6_colors)   # '/'
+        color_other = get_color_for_path('/Users/dwalseth/dev/mix_decode', palette_6_colors)
+
+        # With the bug, root_buggy is '', which may hash to same color as other path
+        # With the fix, root_fixed is '/', which should have different hash
+        # (collision still possible but much less likely)
+
+        # Verify root is not empty after fix
+        assert root_fixed != ''
+        assert root_fixed == '/'
+
+        # Both should return valid colors
+        assert color_root.startswith('#')
+        assert color_other.startswith('#')

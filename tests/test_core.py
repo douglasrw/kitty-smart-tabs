@@ -66,20 +66,16 @@ class TestGetTabCwd:
 
     def test_cwd_from_temp_file(self, tmp_path, monkeypatch):
         """Should read CWD from temp file when exists."""
-        # Create temp CWD file in /tmp
-        import os
-        cwd_file = Path('/tmp') / 'kitty_tab_100_cwd'
-        cwd_file.write_text('/home/user/projects')
+        from smart_tabs.tempfiles import write_cwd_atomic
 
-        try:
-            tab = {'id': 100, 'windows': [{'cwd': '/stale/path'}]}
-            result = get_tab_cwd(tab)
+        # Use secure temp file writing with tmp_path
+        monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
+        write_cwd_atomic(100, '/home/user/projects')
 
-            assert result == '/home/user/projects'
-        finally:
-            # Cleanup
-            if cwd_file.exists():
-                cwd_file.unlink()
+        tab = {'id': 100, 'windows': [{'cwd': '/stale/path'}]}
+        result = get_tab_cwd(tab)
+
+        assert result == '/home/user/projects'
 
     def test_cwd_fallback_to_window(self):
         """Should fallback to window CWD when temp file missing."""

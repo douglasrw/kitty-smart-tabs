@@ -5,41 +5,131 @@ Polls every N seconds to detect running commands and update tab titles.
 """
 
 import sys
+import os
 import time
+import atexit
 from pathlib import Path
 
 from .core import update_tabs
 from .config import Config
+from .tempfiles import get_temp_dir, cleanup_temp_files
+
+
+def acquire_lock() -> Path:
+    """Acquire PID lock file to prevent multiple daemon instances.
+
+    Returns:
+        Path to lock file.
+
+    Raises:
+        RuntimeError: If lock is already held by another process.
+    """
+    lock_file = get_temp_dir() / 'daemon.pid'
+
+    # Check if lock file exists
+    if lock_file.exists():
+        try:
+            pid = int(lock_file.read_text().strip())
+            # Check if process is still running
+            try:
+                os.kill(pid, 0)  # Signal 0 checks if process exists
+                raise RuntimeError(
+                    f"Daemon already running (PID {pid}). "
+                    f"If not running, remove {lock_file}"
+                )
+            except OSError:
+                # Process not running, stale lock file
+                lock_file.unlink()
+        except (ValueError, OSError):
+            # Invalid or inaccessible lock file, remove it
+            try:
+                lock_file.unlink()
+            except Exception:
+                pass
+
+    # Write our PID to lock file
+    lock_file.write_text(str(os.getpid()))
+    lock_file.chmod(0o600)
+
+    # Register cleanup on exit
+    def cleanup():
+        try:
+            if lock_file.exists():
+                current_pid = int(lock_file.read_text().strip())
+                if current_pid == os.getpid():
+                    lock_file.unlink()
+        except Exception:
+            pass
+
+    atexit.register(cleanup)
+    return lock_file
 
 
 def run_daemon(debug: bool = False):
-    """Run the background polling daemon.
+    """Run the background polling daemon with adaptive polling.
 
     Args:
         debug: Enable debug logging
     """
+    # Acquire lock to prevent multiple instances
+    try:
+        lock_file = acquire_lock()
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Register cleanup of temp files on exit
+    atexit.register(cleanup_temp_files)
+
     config = Config()
-    poll_interval = config.poll_interval
+    base_interval = config.poll_interval
+    current_interval = base_interval
+    max_interval = base_interval * 4  # Max 4x base interval when idle
+    idle_iterations = 0
+    idle_threshold = 3  # After 3 iterations with no changes, increase interval
 
     log_file = Path.home() / '.config/kitty/smart_tabs_daemon.log'
 
     if debug:
         with open(log_file, 'w') as f:
             f.write(f"Smart Tabs daemon started\n")
-            f.write(f"Poll interval: {poll_interval}s\n")
+            f.write(f"Base poll interval: {base_interval}s\n")
 
     iteration = 0
     while True:
         try:
-            time.sleep(poll_interval)
+            time.sleep(current_interval)
             iteration += 1
+
+            # Track cache size before/after to detect changes
+            from .core import _tab_state_cache
+            cache_size_before = len(_tab_state_cache)
 
             if debug and iteration % 5 == 0:  # Debug every 5th iteration
                 with open(log_file, 'a') as f:
-                    f.write(f"\n[{iteration}] Running update\n")
+                    f.write(f"\n[{iteration}] Running update (interval={current_interval}s)\n")
                 update_tabs(debug=True)
             else:
                 update_tabs(debug=False)
+
+            cache_size_after = len(_tab_state_cache)
+
+            # Adaptive polling: if no changes detected, gradually increase interval
+            if cache_size_before == cache_size_after:
+                idle_iterations += 1
+                if idle_iterations >= idle_threshold and current_interval < max_interval:
+                    current_interval = min(current_interval * 1.5, max_interval)
+                    if debug:
+                        with open(log_file, 'a') as f:
+                            f.write(f"Increasing poll interval to {current_interval:.1f}s\n")
+            else:
+                # Activity detected, reset to base interval
+                if current_interval != base_interval:
+                    current_interval = base_interval
+                    if debug:
+                        with open(log_file, 'a') as f:
+                            f.write(f"Activity detected, resetting to base interval\n")
+                idle_iterations = 0
 
         except KeyboardInterrupt:
             if debug:

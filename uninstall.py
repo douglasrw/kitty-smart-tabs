@@ -7,13 +7,37 @@ from pathlib import Path
 
 
 def stop_daemon():
-    """Stop the Smart Tabs daemon."""
+    """Stop the Smart Tabs daemon using PID file."""
     print("🛑 Stopping Smart Tabs daemon...")
     try:
-        subprocess.run(['pkill', '-f', 'smart_tabs.*daemon'], capture_output=True)
-        print("   ✓ Daemon stopped")
+        # Use PID file for precise daemon shutdown
+        from smart_tabs.tempfiles import get_temp_dir
+        pid_file = get_temp_dir() / 'daemon.pid'
+
+        if not pid_file.exists():
+            print("   ✓ Daemon not running")
+            return
+
+        # Read PID and send SIGTERM for graceful shutdown
+        pid = int(pid_file.read_text().strip())
+        os.kill(pid, 15)  # SIGTERM
+        print(f"   ✓ Daemon stopped (PID {pid})")
+
+    except ProcessLookupError:
+        # Process not running, clean up stale PID file
+        print("   ✓ Daemon not running (stale PID file removed)")
+        try:
+            pid_file.unlink()
+        except Exception:
+            pass
     except Exception as e:
         print(f"   ⚠️  Could not stop daemon: {e}")
+        # Fallback to pkill as last resort
+        try:
+            subprocess.run(['pkill', '-f', 'smart_tabs.*daemon'], capture_output=True)
+            print("   ✓ Daemon stopped (fallback method)")
+        except Exception:
+            pass
 
 
 def remove_shell_hooks():

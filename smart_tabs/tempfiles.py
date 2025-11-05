@@ -4,6 +4,25 @@ import os
 import tempfile
 from pathlib import Path
 from typing import Optional
+import traceback
+
+
+def _log_debug_error(operation: str, error: Exception) -> None:
+    """Log tempfile errors for debugging.
+
+    Args:
+        operation: Description of operation that failed
+        error: Exception that occurred
+    """
+    try:
+        debug_log = Path.home() / '.config/kitty/smart_tabs_tempfile_debug.log'
+        debug_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(debug_log, 'a') as f:
+            f.write(f"\n{operation}: {error}\n")
+            f.write(traceback.format_exc())
+    except Exception:
+        # Don't fail if logging fails
+        pass
 
 
 def get_temp_dir() -> Path:
@@ -149,7 +168,8 @@ def read_cwd_safe(tab_id: int) -> Optional[str]:
 
         return cwd
 
-    except Exception:
+    except Exception as e:
+        _log_debug_error(f"read_cwd_safe(tab_id={tab_id})", e)
         return None
 
 
@@ -161,7 +181,7 @@ def cleanup_temp_files() -> None:
             for file in temp_dir.glob('tab_*_cwd'):
                 try:
                     file.unlink()
-                except Exception:
-                    pass
-    except Exception:
-        pass
+                except Exception as e:
+                    _log_debug_error(f"cleanup_temp_files unlink {file}", e)
+    except Exception as e:
+        _log_debug_error("cleanup_temp_files", e)

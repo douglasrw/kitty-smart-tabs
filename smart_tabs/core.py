@@ -14,6 +14,12 @@ from .tempfiles import read_cwd_safe
 # Cache for change detection: tab_id -> (title, color)
 _tab_state_cache: Dict[int, Tuple[str, str]] = {}
 
+# Cache for early bailout: tab_id -> (cwd, cmd, tab_index)
+_tab_input_cache: Dict[int, Tuple[str, Optional[str], int]] = {}
+
+# Cached socket path to avoid repeated glob calls
+_cached_socket_path: Optional[str] = None
+
 
 def validate_tab_id(tab_id) -> bool:
     """Validate tab ID is a positive integer.
@@ -60,8 +66,24 @@ def find_kitty_socket() -> Optional[str]:
     Returns:
         Path to socket or None if not found.
     """
+    global _cached_socket_path
+
+    # Use cached socket if available
+    if _cached_socket_path:
+        return _cached_socket_path
+
+    # Find and cache socket
     sockets = glob.glob('/tmp/kitty-*')
-    return sockets[0] if sockets else None
+    if sockets:
+        _cached_socket_path = sockets[0]
+        return _cached_socket_path
+    return None
+
+
+def invalidate_socket_cache():
+    """Invalidate cached socket path (call when connection fails)."""
+    global _cached_socket_path
+    _cached_socket_path = None
 
 
 def get_kitty_command() -> List[str]:
@@ -261,9 +283,13 @@ def update_tabs(debug: bool = False) -> int:
             timeout=2
         )
         if result.returncode != 0:
+            # Connection failed, invalidate socket cache for next attempt
+            invalidate_socket_cache()
             return changes_made
         data = json.loads(result.stdout)
     except Exception as e:
+        # Connection failed, invalidate socket cache for next attempt
+        invalidate_socket_cache()
         if debug:
             with open(log_file, 'w') as f:
                 f.write(f"Error getting tab list: {e}\n")
@@ -325,8 +351,15 @@ def update_tabs(debug: bool = False) -> int:
         if not validate_tab_id(tab_id):
             continue
 
-        color = cwd_to_color[cwd]
         tab_index = tab_id_to_index.get(tab_id, '')
+
+        # Early cache check - skip if input data unchanged
+        # This avoids title/color computation for unchanged tabs
+        cached_input = _tab_input_cache.get(tab_id)
+        if cached_input == (cwd, cmd, tab_index):
+            continue  # No input changes, skip all processing
+
+        color = cwd_to_color[cwd]
 
         # Build title with optional command
         if config.show_tab_index and tab_index:
@@ -340,7 +373,8 @@ def update_tabs(debug: bool = False) -> int:
         # Sanitize title for safety
         title = sanitize_title(title)
 
-        # Check cache - skip if unchanged
+        # Check output cache - skip if unchanged
+        # (Belt and suspenders: catches edge cases like sanitization changes)
         cached_state = _tab_state_cache.get(tab_id)
         if cached_state == (title, color):
             continue  # No changes, skip subprocess calls
@@ -364,8 +398,9 @@ def update_tabs(debug: bool = False) -> int:
                 timeout=0.5
             )
 
-            # Update cache ONLY on success
+            # Update both caches ONLY on success
             _tab_state_cache[tab_id] = (title, color)
+            _tab_input_cache[tab_id] = (cwd, cmd, tab_index)
             changes_made += 1
 
         except Exception as e:

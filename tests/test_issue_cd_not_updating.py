@@ -11,7 +11,7 @@ import json
 import pytest
 from pathlib import Path
 from unittest.mock import Mock
-from smart_tabs.core import update_tabs, _tab_state_cache
+from smart_tabs.core import update_tabs, _tab_state_cache, _tab_input_cache
 from smart_tabs.tempfiles import write_cwd_atomic
 
 
@@ -93,6 +93,7 @@ class TestCdNotUpdatingTitle:
         monkeypatch.setattr('glob.glob', lambda p: ['/tmp/kitty-test'])
 
         _tab_state_cache.clear()
+        _tab_input_cache.clear()
 
         # Daemon polls after new tab opens
         update_tabs(debug=False)
@@ -163,8 +164,9 @@ class TestCdNotUpdatingTitle:
         monkeypatch.setattr('subprocess.run', mock_run)
         monkeypatch.setattr('glob.glob', lambda p: ['/tmp/kitty-test'])
 
-        # Clear cache
+        # Clear caches
         _tab_state_cache.clear()
+        _tab_input_cache.clear()
 
         # First update - tab should show "dwalseth"
         update_tabs(debug=False)
@@ -243,6 +245,7 @@ class TestCdNotUpdatingTitle:
 
         # Initial state: Tab 1 in home dir
         _tab_state_cache.clear()
+        _tab_input_cache.clear()
 
         # User cd's to ~/dev in tab 1
         write_cwd_atomic(tab1_id, dev_dir)

@@ -18,6 +18,9 @@ class TestFindKittySocket:
 
     def test_socket_found(self, monkeypatch):
         """Should return first socket when found."""
+        from smart_tabs.core import invalidate_socket_cache
+        invalidate_socket_cache()  # Clear cache before test
+
         mock_sockets = ['/tmp/kitty-12345', '/tmp/kitty-67890']
         monkeypatch.setattr('glob.glob', lambda pattern: mock_sockets)
 
@@ -26,6 +29,9 @@ class TestFindKittySocket:
 
     def test_no_socket_found(self, monkeypatch):
         """Should return None when no socket found."""
+        from smart_tabs.core import invalidate_socket_cache
+        invalidate_socket_cache()  # Clear cache before test
+
         monkeypatch.setattr('glob.glob', lambda pattern: [])
 
         result = find_kitty_socket()
@@ -33,6 +39,9 @@ class TestFindKittySocket:
 
     def test_single_socket(self, monkeypatch):
         """Should return single socket when only one exists."""
+        from smart_tabs.core import invalidate_socket_cache
+        invalidate_socket_cache()  # Clear cache before test
+
         mock_sockets = ['/tmp/kitty-99999']
         monkeypatch.setattr('glob.glob', lambda pattern: mock_sockets)
 
@@ -46,6 +55,9 @@ class TestGetKittyCommand:
 
     def test_command_with_socket(self, monkeypatch):
         """Should include socket in command when found."""
+        from smart_tabs.core import invalidate_socket_cache
+        invalidate_socket_cache()  # Clear cache before test
+
         mock_sockets = ['/tmp/kitty-12345']
         monkeypatch.setattr('glob.glob', lambda pattern: mock_sockets)
 
@@ -54,6 +66,9 @@ class TestGetKittyCommand:
 
     def test_command_without_socket(self, monkeypatch):
         """Should use default command when no socket found."""
+        from smart_tabs.core import invalidate_socket_cache
+        invalidate_socket_cache()  # Clear cache before test
+
         monkeypatch.setattr('glob.glob', lambda pattern: [])
 
         result = get_kitty_command()

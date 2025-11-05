@@ -8,11 +8,26 @@ import sys
 import os
 import time
 import atexit
+import signal
 from pathlib import Path
 
 from .core import update_tabs
 from .config import Config
 from .tempfiles import get_temp_dir, cleanup_temp_files
+
+# Global shutdown flag for signal handling
+# Using flag-based approach per best practices (logging in handlers not re-entrant safe)
+_shutdown_requested = False
+
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals gracefully.
+
+    Sets global flag for main loop to check.
+    Best practice: Don't log here (threading locks not re-entrant safe).
+    """
+    global _shutdown_requested
+    _shutdown_requested = True
 
 
 def acquire_lock() -> Path:
@@ -71,6 +86,10 @@ def run_daemon(debug: bool = False):
     Args:
         debug: Enable debug logging
     """
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
     # Acquire lock to prevent multiple instances
     try:
         lock_file = acquire_lock()
@@ -96,12 +115,16 @@ def run_daemon(debug: bool = False):
             f.write(f"Base poll interval: {base_interval}s\n")
 
     iteration = 0
-    while True:
+    while not _shutdown_requested:
         try:
             # Skip sleep on first iteration for immediate startup response
             if iteration > 0:
                 time.sleep(current_interval)
             iteration += 1
+
+            # Check shutdown flag after sleep
+            if _shutdown_requested:
+                break
 
             # Run update and get number of actual changes made
             if debug and iteration % 5 == 0:  # Debug every 5th iteration
@@ -128,17 +151,17 @@ def run_daemon(debug: bool = False):
                             f.write(f"Activity detected ({changes_made} changes), resetting to base interval\n")
                 idle_iterations = 0
 
-        except KeyboardInterrupt:
-            if debug:
-                with open(log_file, 'a') as f:
-                    f.write("Daemon stopped by user\n")
-            break
         except Exception as e:
             if debug:
                 with open(log_file, 'a') as f:
                     f.write(f"Error in daemon: {e}\n")
             # Continue running even on error
             continue
+
+    # Graceful shutdown
+    if debug:
+        with open(log_file, 'a') as f:
+            f.write("Daemon shutting down gracefully\n")
 
 
 def main():

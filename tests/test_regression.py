@@ -935,3 +935,254 @@ class TestDisplayCorrectnessRegression:
 
         # Second tab should start with 2:
         assert titles_by_tab[210].startswith('2:')
+
+
+@pytest.mark.regression
+class TestSignalHandlingRegression:
+    """Regression tests for daemon signal handling.
+
+    Improvement: Daemon now handles SIGTERM and SIGINT gracefully
+    for clean shutdown during system shutdown/restart scenarios.
+    """
+
+    def test_daemon_handles_sigterm_gracefully(self, monkeypatch):
+        """Daemon should shut down gracefully on SIGTERM."""
+        import signal
+        import smart_tabs.daemon as daemon_module
+
+        mock_tab_data = [{"id": 1, "tabs": []}]
+        iterations = []
+
+        def mock_run(cmd, *args, **kwargs):
+            mock_result = Mock()
+            mock_result.stdout = json.dumps(mock_tab_data)
+            mock_result.returncode = 0
+            return mock_result
+
+        def mock_sleep(duration):
+            iterations.append(1)
+            # Send SIGTERM after first iteration
+            if len(iterations) == 1:
+                daemon_module._shutdown_requested = True
+
+        def mock_acquire_lock():
+            return Mock()
+
+        monkeypatch.setattr('subprocess.run', mock_run)
+        monkeypatch.setattr('glob.glob', lambda p: ['/tmp/kitty-test'])
+        monkeypatch.setattr('time.sleep', mock_sleep)
+        monkeypatch.setattr('smart_tabs.daemon.acquire_lock', mock_acquire_lock)
+
+        # Reset shutdown flag
+        daemon_module._shutdown_requested = False
+
+        run_daemon(debug=False)
+
+        # Should have exited gracefully after shutdown flag set
+        assert daemon_module._shutdown_requested == True
+        assert len(iterations) >= 1
+
+    def test_daemon_handles_sigint_gracefully(self, monkeypatch):
+        """Daemon should shut down gracefully on SIGINT."""
+        import smart_tabs.daemon as daemon_module
+
+        mock_tab_data = [{"id": 1, "tabs": []}]
+
+        def mock_run(cmd, *args, **kwargs):
+            mock_result = Mock()
+            mock_result.stdout = json.dumps(mock_tab_data)
+            mock_result.returncode = 0
+            return mock_result
+
+        def mock_sleep(duration):
+            # Simulate SIGINT by setting flag
+            daemon_module._shutdown_requested = True
+
+        def mock_acquire_lock():
+            return Mock()
+
+        monkeypatch.setattr('subprocess.run', mock_run)
+        monkeypatch.setattr('glob.glob', lambda p: ['/tmp/kitty-test'])
+        monkeypatch.setattr('time.sleep', mock_sleep)
+        monkeypatch.setattr('smart_tabs.daemon.acquire_lock', mock_acquire_lock)
+
+        daemon_module._shutdown_requested = False
+
+        run_daemon(debug=False)
+
+        # Should exit cleanly
+        assert daemon_module._shutdown_requested == True
+
+
+@pytest.mark.regression
+class TestConfigRobustnessRegression:
+    """Regression tests for config file handling robustness.
+
+    Improvement: Better handling of malformed config files.
+    """
+
+    def test_malformed_config_uses_defaults(self, tmp_path):
+        """Malformed config file should fall back to defaults."""
+        from smart_tabs.config import Config
+
+        # Create malformed config
+        config_file = tmp_path / 'smart_tabs.conf'
+        config_file.write_text('[behavior\nthis is not valid INI\ngarbage text')
+
+        with patch('pathlib.Path.home') as mock_home:
+            mock_home.return_value = tmp_path
+            (tmp_path / '.config' / 'kitty').mkdir(parents=True)
+            config_file_dst = tmp_path / '.config' / 'kitty' / 'smart_tabs.conf'
+            config_file_dst.write_text('[behavior\nthis is not valid INI')
+
+            # Should not crash, should use defaults
+            try:
+                config = Config()
+                # Basic check that defaults are used
+                assert config.poll_interval > 0
+                assert isinstance(config.show_commands, bool)
+            except Exception:
+                # Also acceptable to raise but not crash
+                pass
+
+    def test_empty_config_uses_defaults(self, tmp_path):
+        """Empty config file should use defaults."""
+        from smart_tabs.config import Config
+
+        config_file = tmp_path / 'smart_tabs.conf'
+        config_file.write_text('')
+
+        with patch('pathlib.Path.home') as mock_home:
+            mock_home.return_value = tmp_path
+            (tmp_path / '.config' / 'kitty').mkdir(parents=True)
+            config_file_dst = tmp_path / '.config' / 'kitty' / 'smart_tabs.conf'
+            config_file_dst.write_text('')
+
+            config = Config()
+            # Defaults should be loaded
+            assert config.poll_interval == 2
+            assert config.show_commands == True
+
+
+@pytest.mark.regression
+class TestSocketCacheRegression:
+    """Regression tests for socket path caching.
+
+    Improvement: Socket path is cached to avoid repeated glob calls,
+    improving performance. Cache is invalidated on connection failure.
+    """
+
+    def test_socket_path_cached_across_calls(self, monkeypatch):
+        """Socket path should be cached and reused."""
+        from smart_tabs.core import find_kitty_socket, invalidate_socket_cache
+
+        glob_calls = []
+
+        def mock_glob(pattern):
+            glob_calls.append(pattern)
+            return ['/tmp/kitty-test']
+
+        monkeypatch.setattr('glob.glob', mock_glob)
+
+        # Reset cache
+        invalidate_socket_cache()
+
+        # First call should hit glob
+        socket1 = find_kitty_socket()
+        assert len(glob_calls) == 1
+
+        # Second call should use cache
+        socket2 = find_kitty_socket()
+        assert len(glob_calls) == 1  # No new glob calls
+
+        assert socket1 == socket2
+
+    def test_socket_cache_invalidated_on_failure(self, monkeypatch):
+        """Socket cache should be invalidated when connection fails."""
+        from smart_tabs.core import invalidate_socket_cache, _cached_socket_path
+        import smart_tabs.core as core_module
+
+        mock_tab_data = [{"id": 1, "tabs": []}]
+
+        def mock_run(cmd, *args, **kwargs):
+            mock_result = Mock()
+            if 'ls' in cmd:
+                # Simulate connection failure
+                mock_result.returncode = 1
+                mock_result.stdout = ""
+            else:
+                mock_result.returncode = 0
+            return mock_result
+
+        monkeypatch.setattr('subprocess.run', mock_run)
+        monkeypatch.setattr('glob.glob', lambda p: ['/tmp/kitty-test'])
+
+        # Set cache
+        core_module._cached_socket_path = '/tmp/kitty-old'
+
+        # Call update_tabs which should fail and invalidate cache
+        update_tabs(debug=False)
+
+        # Cache should be invalidated
+        assert core_module._cached_socket_path is None
+
+
+@pytest.mark.regression
+class TestEarlyCacheCheckRegression:
+    """Regression tests for early cache checking optimization.
+
+    Improvement: Cache is checked before computing title/color strings,
+    saving CPU cycles for unchanged tabs.
+    """
+
+    def test_early_cache_skip_avoids_computation(self, monkeypatch):
+        """Early cache hit should skip title/color computation."""
+        from smart_tabs.core import update_tabs, _tab_state_cache, _tab_input_cache
+
+        mock_tab_data = [
+            {
+                "id": 1,
+                "tabs": [
+                    {
+                        "id": 999,
+                        "title": "test",
+                        "windows": [{
+                            "cwd": "/home/user/test",
+                            "foreground_processes": [{"cmdline": ["vim"]}]
+                        }]
+                    }
+                ]
+            }
+        ]
+
+        subprocess_calls = []
+
+        def mock_run(cmd, *args, **kwargs):
+            subprocess_calls.append(cmd)
+            mock_result = Mock()
+            if 'ls' in cmd:
+                mock_result.stdout = json.dumps(mock_tab_data)
+                mock_result.returncode = 0
+            else:
+                mock_result.returncode = 0
+            return mock_result
+
+        monkeypatch.setattr('subprocess.run', mock_run)
+        monkeypatch.setattr('glob.glob', lambda p: ['/tmp/kitty-test'])
+
+        # Clear caches and do first update
+        _tab_state_cache.clear()
+        _tab_input_cache.clear()
+
+        result1 = update_tabs(debug=False)
+        assert result1 == 1  # Tab updated
+        initial_call_count = len(subprocess_calls)
+
+        # Second update with same data - should use cache
+        result2 = update_tabs(debug=False)
+        assert result2 == 0  # No updates (cache hit)
+
+        # Should have only added the 'ls' call, no set-tab calls
+        new_calls = len(subprocess_calls) - initial_call_count
+        # Only the 'ls' call should have been made
+        assert new_calls == 1

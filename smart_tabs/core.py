@@ -8,6 +8,50 @@ from typing import Optional, Dict, Tuple, List
 
 from .config import Config
 from .colors import get_color_for_path
+from .tempfiles import read_cwd_safe
+
+
+# Cache for change detection: tab_id -> (title, color)
+_tab_state_cache: Dict[int, Tuple[str, str]] = {}
+
+
+def validate_tab_id(tab_id) -> bool:
+    """Validate tab ID is a positive integer.
+
+    Args:
+        tab_id: Tab ID to validate.
+
+    Returns:
+        True if valid, False otherwise.
+    """
+    return isinstance(tab_id, int) and tab_id > 0
+
+
+def sanitize_title(title: str, max_length: int = 256) -> str:
+    """Sanitize tab title for safe use in subprocess.
+
+    Args:
+        title: Title string.
+        max_length: Maximum allowed length.
+
+    Returns:
+        Sanitized title.
+    """
+    if not title or not title.strip():
+        return "untitled"
+
+    # Limit length
+    if len(title) > max_length:
+        title = title[:max_length]
+
+    # Remove control characters and newlines
+    title = ''.join(c for c in title if c.isprintable())
+
+    # Check again after cleaning
+    if not title or not title.strip():
+        return "untitled"
+
+    return title
 
 
 def find_kitty_socket() -> Optional[str]:
@@ -45,15 +89,14 @@ def get_tab_cwd(tab: Dict) -> str:
     if not tab_id:
         return ''
 
-    # Primary source: temp file written by shell on cd
-    cwd_file = Path(f'/tmp/kitty_tab_{tab_id}_cwd')
-    if cwd_file.exists():
-        try:
-            cwd = cwd_file.read_text().strip()
-            if cwd:
-                return cwd
-        except Exception:
-            pass
+    # Validate tab_id is an integer
+    if not isinstance(tab_id, int) or tab_id <= 0:
+        return ''
+
+    # Primary source: temp file written by shell on cd (secure read)
+    cwd = read_cwd_safe(tab_id)
+    if cwd:
+        return cwd
 
     # Fallback: Use Kitty's reported CWD (may be stale)
     for window in tab.get('windows', []):
@@ -274,6 +317,10 @@ def update_tabs(debug: bool = False) -> None:
 
     # Apply colors and titles to all tabs
     for tab_id, (cwd, dir_name, cmd) in tab_info.items():
+        # Validate tab_id before using
+        if not validate_tab_id(tab_id):
+            continue
+
         color = cwd_to_color[cwd]
         tab_index = tab_id_to_index.get(tab_id, '')
 
@@ -285,6 +332,14 @@ def update_tabs(debug: bool = False) -> None:
                 title = f"{tab_index}: {dir_name}"
         else:
             title = f"{dir_name} [{cmd}]" if cmd else dir_name
+
+        # Sanitize title for safety
+        title = sanitize_title(title)
+
+        # Check cache - skip if unchanged
+        cached_state = _tab_state_cache.get(tab_id)
+        if cached_state == (title, color):
+            continue  # No changes, skip subprocess calls
 
         if debug:
             with open(log_file, 'a') as f:
@@ -304,6 +359,10 @@ def update_tabs(debug: bool = False) -> None:
                 capture_output=True,
                 timeout=1
             )
+
+            # Update cache on success
+            _tab_state_cache[tab_id] = (title, color)
+
         except Exception as e:
             if debug:
                 with open(log_file, 'a') as f:

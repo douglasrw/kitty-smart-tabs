@@ -10,10 +10,10 @@ if [[ "$TERM" == "xterm-kitty" ]]; then
         fi
 
         local tab_id=$(kitty @ ls 2>/dev/null | python3 -c "
-import sys, json
+import sys, json, os
 try:
     data = json.load(sys.stdin)
-    window_id = $KITTY_WINDOW_ID
+    window_id = int(os.environ['KITTY_WINDOW_ID'])
     for os_win in data:
         for tab in os_win.get('tabs', []):
             for win in tab.get('windows', []):
@@ -41,8 +41,8 @@ except Exception:
             return
         fi
 
-        # Store current PWD for this tab
-        echo "$PWD" > "/tmp/kitty_tab_${tab_id}_cwd" 2>/dev/null
+        # Store current PWD for this tab (securely)
+        python3 -m smart_tabs.write_cwd "$tab_id" "$PWD" 2>/dev/null
 
         # The daemon will handle the actual update
     }

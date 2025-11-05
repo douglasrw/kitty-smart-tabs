@@ -79,14 +79,31 @@ def remove_files():
 
 
 def clean_temp_files():
-    """Clean up temp CWD files."""
+    """Clean up temp CWD files from both old and new locations."""
     print("\n🧹 Cleaning temp files...")
 
-    temp_pattern = Path('/tmp')
     count = 0
+
+    # Clean old location (/tmp)
+    temp_pattern = Path('/tmp')
     for temp_file in temp_pattern.glob('kitty_tab_*_cwd'):
-        temp_file.unlink()
-        count += 1
+        try:
+            temp_file.unlink()
+            count += 1
+        except Exception:
+            pass
+
+    # Clean new secure location using tempfiles module
+    try:
+        from smart_tabs.tempfiles import cleanup_temp_files
+        cleanup_temp_files()
+        # Count files in new location too
+        from smart_tabs.tempfiles import get_temp_dir
+        temp_dir = get_temp_dir()
+        if temp_dir.exists():
+            count += len(list(temp_dir.glob('tab_*_cwd')))
+    except Exception:
+        pass
 
     if count > 0:
         print(f"   ✓ Removed {count} temp files")

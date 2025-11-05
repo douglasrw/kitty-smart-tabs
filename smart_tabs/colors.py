@@ -21,6 +21,16 @@ def get_color_for_path(path, color_palette=None):
             '#ffd866',  # yellow
             '#78dce8',  # cyan
             '#f48771',  # red
+            '#ff6188',  # pink
+            '#fc9867',  # orange
+            '#79dac8',  # teal
+            '#5ad4e6',  # sky blue
+            '#9ecd6f',  # lime
+            '#e0af68',  # gold
+            '#bb9af7',  # purple
+            '#7dcfff',  # light cyan
+            '#ff9e64',  # light orange
+            '#7aa2f7',  # periwinkle
         ]
 
     hash_val = int(hashlib.md5(path.encode()).hexdigest(), 16)

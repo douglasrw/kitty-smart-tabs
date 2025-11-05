@@ -44,7 +44,7 @@ except Exception:
         fi
 
         # Store current PWD for this tab (securely)
-        python3 -m smart_tabs.write_cwd "$tab_id" "$PWD" 2>/dev/null
+        PYTHONPATH="$HOME/.config/kitty/kittens:$PYTHONPATH" python3 -m smart_tabs.write_cwd "$tab_id" "$PWD" 2>/dev/null
 
         # The daemon will handle the actual update
     }
@@ -52,11 +52,11 @@ except Exception:
     # Update on directory change
     chpwd_functions+=(_smart_tabs_update)
 
-    # Run once on shell start
-    { sleep 0.1 && _smart_tabs_update } &!
+    # Run once on shell start (no delay needed)
+    _smart_tabs_update &!
 
     # Start daemon if not already running
     if ! pgrep -f "smart_tabs.*daemon" >/dev/null 2>&1; then
-        nohup python3 -m smart_tabs.daemon >/dev/null 2>&1 &
+        PYTHONPATH="$HOME/.config/kitty/kittens:$PYTHONPATH" nohup python3 -m smart_tabs.daemon >/dev/null 2>&1 &
     fi
 fi

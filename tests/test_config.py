@@ -14,9 +14,9 @@ class TestConfigDefaults:
         assert default_config is not None
 
     def test_default_color_palette(self, default_config):
-        """Default color palette should contain 6 colors."""
+        """Default color palette should contain 16 colors."""
         palette = default_config.get_color_palette()
-        assert len(palette) == 6
+        assert len(palette) == 16
         assert all(color.startswith('#') for color in palette)
 
     def test_default_show_commands(self, default_config):

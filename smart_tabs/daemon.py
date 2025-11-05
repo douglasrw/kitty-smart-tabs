@@ -98,37 +98,34 @@ def run_daemon(debug: bool = False):
     iteration = 0
     while True:
         try:
-            time.sleep(current_interval)
+            # Skip sleep on first iteration for immediate startup response
+            if iteration > 0:
+                time.sleep(current_interval)
             iteration += 1
 
-            # Track cache size before/after to detect changes
-            from .core import _tab_state_cache
-            cache_size_before = len(_tab_state_cache)
-
+            # Run update and get number of actual changes made
             if debug and iteration % 5 == 0:  # Debug every 5th iteration
                 with open(log_file, 'a') as f:
                     f.write(f"\n[{iteration}] Running update (interval={current_interval}s)\n")
-                update_tabs(debug=True)
+                changes_made = update_tabs(debug=True)
             else:
-                update_tabs(debug=False)
+                changes_made = update_tabs(debug=False)
 
-            cache_size_after = len(_tab_state_cache)
-
-            # Adaptive polling: if no changes detected, gradually increase interval
-            if cache_size_before == cache_size_after:
+            # Adaptive polling: if no changes made, gradually increase interval
+            if changes_made == 0:
                 idle_iterations += 1
                 if idle_iterations >= idle_threshold and current_interval < max_interval:
                     current_interval = min(current_interval * 1.5, max_interval)
                     if debug:
                         with open(log_file, 'a') as f:
-                            f.write(f"Increasing poll interval to {current_interval:.1f}s\n")
+                            f.write(f"No changes for {idle_iterations} iterations, increasing poll interval to {current_interval:.1f}s\n")
             else:
-                # Activity detected, reset to base interval
+                # Changes detected, reset to base interval
                 if current_interval != base_interval:
                     current_interval = base_interval
                     if debug:
                         with open(log_file, 'a') as f:
-                            f.write(f"Activity detected, resetting to base interval\n")
+                            f.write(f"Activity detected ({changes_made} changes), resetting to base interval\n")
                 idle_iterations = 0
 
         except KeyboardInterrupt:

@@ -7,7 +7,7 @@ from typing import List, Dict, Any
 
 DEFAULT_CONFIG = {
     'colors': {
-        'palette': '#2b8eff,#a9dc76,#ab9df2,#ffd866,#78dce8,#f48771'
+        'palette': '#2b8eff,#a9dc76,#ab9df2,#ffd866,#78dce8,#f48771,#ff6188,#fc9867,#79dac8,#5ad4e6,#9ecd6f,#e0af68,#bb9af7,#7dcfff,#ff9e64,#7aa2f7'
     },
     'behavior': {
         'show_commands': 'true',

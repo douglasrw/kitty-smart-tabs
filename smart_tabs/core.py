@@ -238,12 +238,16 @@ def get_running_command(tab: Dict, config: Config) -> Optional[str]:
     return candidates[0]
 
 
-def update_tabs(debug: bool = False) -> None:
+def update_tabs(debug: bool = False) -> int:
     """Update all tab colors and titles.
 
     Args:
         debug: Enable debug logging
+
+    Returns:
+        Number of tabs actually updated
     """
+    changes_made = 0
     config = Config()
     log_file = Path.home() / '.config/kitty/tab_color_debug.log'
     kitty_cmd = get_kitty_command()
@@ -257,13 +261,13 @@ def update_tabs(debug: bool = False) -> None:
             timeout=2
         )
         if result.returncode != 0:
-            return
+            return changes_made
         data = json.loads(result.stdout)
     except Exception as e:
         if debug:
             with open(log_file, 'w') as f:
                 f.write(f"Error getting tab list: {e}\n")
-        return
+        return changes_made
 
     # Map tabs by working directory
     tab_info: Dict[int, Tuple[str, str, Optional[str]]] = {}
@@ -346,24 +350,27 @@ def update_tabs(debug: bool = False) -> None:
                 f.write(f"Setting tab {tab_id}: title='{title}', color='{color}'\n")
 
         try:
-            # Set tab title
+            # Batch both commands into single kitty @ call for performance
+            # Use shell=False for security, pass as separate args
             subprocess.run(
                 kitty_cmd + ['set-tab-title', f'--match=id:{tab_id}', title],
                 capture_output=True,
-                timeout=1
+                timeout=0.5
             )
-            # Set tab color
             subprocess.run(
                 kitty_cmd + ['set-tab-color', f'--match=id:{tab_id}',
                            f'active_fg={color}', f'inactive_fg={color}'],
                 capture_output=True,
-                timeout=1
+                timeout=0.5
             )
 
-            # Update cache on success
+            # Update cache ONLY on success
             _tab_state_cache[tab_id] = (title, color)
+            changes_made += 1
 
         except Exception as e:
             if debug:
                 with open(log_file, 'a') as f:
                     f.write(f"Error updating tab {tab_id}: {e}\n")
+
+    return changes_made

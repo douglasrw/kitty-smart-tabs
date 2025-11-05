@@ -98,8 +98,56 @@ def get_kitty_command() -> List[str]:
     return ['kitty', '@']
 
 
+def get_process_cwd(pid: int) -> Optional[str]:
+    """Get actual CWD of a process by reading from /proc or lsof.
+
+    This provides more accurate CWD detection than kitty's reported CWD,
+    especially when shell hooks aren't loaded.
+
+    Args:
+        pid: Process ID
+
+    Returns:
+        Current working directory of process, or None if detection fails.
+    """
+    import os
+    import subprocess
+    from pathlib import Path
+
+    # Try /proc/$PID/cwd (Linux)
+    proc_cwd = Path(f'/proc/{pid}/cwd')
+    if proc_cwd.exists():
+        try:
+            # Read the symlink to get actual CWD
+            cwd = os.readlink(proc_cwd)
+            if cwd and cwd.startswith('/'):
+                return cwd
+        except (OSError, PermissionError):
+            pass
+
+    # Try lsof (macOS/BSD)
+    try:
+        result = subprocess.run(
+            ['lsof', '-p', str(pid), '-a', '-d', 'cwd', '-Fn'],
+            capture_output=True,
+            text=True,
+            timeout=0.5
+        )
+        if result.returncode == 0:
+            # Parse lsof output: lines starting with 'n' contain the path
+            for line in result.stdout.split('\n'):
+                if line.startswith('n') and len(line) > 1:
+                    cwd = line[1:]  # Strip the 'n' prefix
+                    if cwd and cwd.startswith('/'):
+                        return cwd
+    except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError):
+        pass
+
+    return None
+
+
 def get_tab_cwd(tab: Dict) -> str:
-    """Get the CWD from temp file or fallback to Kitty's CWD.
+    """Get the CWD from temp file, process detection, or fallback to Kitty's CWD.
 
     Args:
         tab: Tab data from kitty @ ls
@@ -120,7 +168,19 @@ def get_tab_cwd(tab: Dict) -> str:
     if cwd:
         return cwd
 
-    # Fallback: Use Kitty's reported CWD (may be stale)
+    # Secondary source: Detect CWD from foreground process
+    # This works even without shell hooks, providing better accuracy
+    for window in tab.get('windows', []):
+        fg_processes = window.get('foreground_processes', [])
+        if fg_processes:
+            # Try to get CWD from the first foreground process
+            pid = fg_processes[0].get('pid')
+            if pid:
+                cwd = get_process_cwd(pid)
+                if cwd:
+                    return cwd
+
+    # Tertiary fallback: Use Kitty's reported CWD (may be stale)
     for window in tab.get('windows', []):
         cwd = window.get('cwd', '')
         if cwd:

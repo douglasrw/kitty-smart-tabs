@@ -19,18 +19,18 @@ from smart_tabs.tempfiles import write_cwd_atomic
 class TestCdNotUpdatingTitle:
     """Test that verifies the cd → new tab issue."""
 
-    def test_without_shell_hooks_tab_shows_stale_cwd(self, monkeypatch, tmp_path):
-        """Reproduce ACTUAL issue: Without shell hooks, temp files don't exist, shows stale CWD.
+    def test_without_shell_hooks_tab_shows_correct_cwd(self, monkeypatch, tmp_path):
+        """Test that process CWD detection works without shell hooks.
 
         Scenario:
         1. User starts kitty in /Users/dwalseth
         2. User cd's to /Users/dwalseth/dev
         3. Shell hook NOT loaded, so NO temp file written
         4. User opens new tab (Cmd+T)
-        5. update_tabs runs, reads kitty's CWD (which is stale)
-        6. Tab 1 incorrectly shows "dwalseth" instead of "dev"
+        5. update_tabs runs, uses process CWD detection as fallback
+        6. Tab 1 correctly shows "dev" (via process detection)
 
-        This test SHOULD FAIL to demonstrate the bug.
+        This test verifies the fix for stale CWD without shell hooks.
         """
 
         # Setup - NO temp file directory to simulate hooks not loaded
@@ -58,7 +58,7 @@ class TestCdNotUpdatingTitle:
                         "title": "dwalseth",
                         "windows": [{
                             "cwd": home_dir,  # STALE - kitty doesn't know user cd'd
-                            "foreground_processes": [{"cmdline": ["zsh"]}]
+                            "foreground_processes": [{"cmdline": ["zsh"], "pid": 12345}]
                         }]
                     },
                     {
@@ -66,12 +66,24 @@ class TestCdNotUpdatingTitle:
                         "title": "zsh",
                         "windows": [{
                             "cwd": dev_dir,  # Correct - new tab inherits current shell CWD
-                            "foreground_processes": [{"cmdline": ["zsh"]}]
+                            "foreground_processes": [{"cmdline": ["zsh"], "pid": 12346}]
                         }]
                     }
                 ]
             }
         ]
+
+        # Mock get_process_cwd to return actual CWD (simulating process detection)
+        def mock_get_process_cwd(pid):
+            # PID 12345 is in dev_dir (user cd'd there)
+            if pid == 12345:
+                return dev_dir
+            # PID 12346 is also in dev_dir (new tab)
+            elif pid == 12346:
+                return dev_dir
+            return None
+
+        monkeypatch.setattr('smart_tabs.core.get_process_cwd', mock_get_process_cwd)
 
         def mock_run(cmd, *args, **kwargs):
             mock_result = Mock()
@@ -100,16 +112,15 @@ class TestCdNotUpdatingTitle:
 
         print(f"\nCaptured titles: {captured_titles_by_tab}")
 
-        # THE BUG: Tab 1 shows "dwalseth" when it should show "dev"
+        # THE FIX: Tab 1 now correctly shows "dev" via process CWD detection
         if tab1_id in captured_titles_by_tab:
             tab1_title = captured_titles_by_tab[tab1_id]
             print(f"Tab 1 title: {tab1_title}")
 
-            # This assertion SHOULD FAIL, demonstrating the bug
+            # This assertion should now PASS - process CWD detection fixes the bug
             assert 'dev' in tab1_title, (
-                f"BUG REPRODUCED: Tab 1 shows '{tab1_title}' instead of 'dev'. "
-                f"Without shell hooks, temp file doesn't exist, so we get stale CWD from kitty. "
-                f"User cd'd to ~/dev but tab still shows 'dwalseth'."
+                f"Tab 1 shows '{tab1_title}' instead of 'dev'. "
+                f"Process CWD detection should provide correct CWD even without shell hooks."
             )
 
         # Tab 2 will correctly show "dev" since it's a new tab

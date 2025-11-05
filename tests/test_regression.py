@@ -350,30 +350,36 @@ class TestColorPaletteRegression:
     Fix: Expanded palette to 16 colors for better distribution.
     """
 
-    def test_expanded_palette_has_16_colors(self):
+    def test_expanded_palette_has_16_colors(self, tmp_path):
         """Color palette should have 16 colors, not 6."""
         from smart_tabs.config import Config
 
-        config = Config()
+        # Use non-existent path to get defaults
+        nonexistent = tmp_path / "nonexistent.conf"
+        config = Config(nonexistent)
         palette = config.get_color_palette()
 
         assert len(palette) == 16, f"Expected 16 colors, got {len(palette)}"
 
-    def test_palette_colors_are_unique(self):
+    def test_palette_colors_are_unique(self, tmp_path):
         """All colors in palette should be unique."""
         from smart_tabs.config import Config
 
-        config = Config()
+        # Use non-existent path to get defaults
+        nonexistent = tmp_path / "nonexistent.conf"
+        config = Config(nonexistent)
         palette = config.get_color_palette()
 
         assert len(palette) == len(set(palette)), "Palette contains duplicate colors"
 
-    def test_color_distribution_with_many_paths(self):
+    def test_color_distribution_with_many_paths(self, tmp_path):
         """With 16 colors, many paths should have less collision."""
         from smart_tabs.colors import get_color_for_path
         from smart_tabs.config import Config
 
-        config = Config()
+        # Use non-existent path to get defaults
+        nonexistent = tmp_path / "nonexistent.conf"
+        config = Config(nonexistent)
         palette = config.get_color_palette()
 
         # Create 16 different paths
@@ -386,11 +392,13 @@ class TestColorPaletteRegression:
         # Should use at least 10 different colors (allowing some collision)
         assert unique_colors >= 10, f"Only {unique_colors} unique colors used for 16 paths"
 
-    def test_original_colors_still_present(self):
+    def test_original_colors_still_present(self, tmp_path):
         """Original 6 colors should still be in palette."""
         from smart_tabs.config import Config
 
-        config = Config()
+        # Use non-existent path to get defaults
+        nonexistent = tmp_path / "nonexistent.conf"
+        config = Config(nonexistent)
         palette = config.get_color_palette()
 
         original_colors = [

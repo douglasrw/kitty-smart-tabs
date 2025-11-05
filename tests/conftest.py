@@ -10,9 +10,11 @@ from smart_tabs.config import Config
 
 
 @pytest.fixture
-def default_config():
-    """Provide default Config instance."""
-    return Config()
+def default_config(tmp_path):
+    """Provide default Config instance without reading user config."""
+    # Use non-existent path to force Config to use built-in defaults
+    nonexistent = tmp_path / "nonexistent.conf"
+    return Config(nonexistent)
 
 
 @pytest.fixture
